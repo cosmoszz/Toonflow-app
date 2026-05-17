@@ -220,13 +220,14 @@ const getBaseUrl = () => vendor.inputValues.baseUrl.replace(/\/+$/, "");
  * 输入："data:image/png;base64,iVBOR..."
  * 输出："iVBOR..."
  */
-const extractPureBase64 = (dataUrl: string): string => {
-  if (!dataUrl || typeof dataUrl !== "string") return "";
+const parseDataUrl = (dataUrl: string): { base64: string; mimeType: string } => {
+  if (!dataUrl || typeof dataUrl !== "string") return { base64: "", mimeType: "image/png" };
   const parts = dataUrl.split(",");
   if (parts.length === 2 && parts[0].includes("base64")) {
-    return parts[1];
+    const mimeMatch = parts[0].match(/data:([^;]+);base64/);
+    return { base64: parts[1], mimeType: mimeMatch?.[1] || "image/png" };
   }
-  return dataUrl;
+  return { base64: dataUrl, mimeType: "image/png" };
 };
 
 // ============================================================
@@ -283,10 +284,10 @@ const imageRequest = async (config: ImageConfig, model: ImageModel): Promise<str
     );
     if (validRefs.length > 0) {
       instance.referenceImages = validRefs.map((ref, index) => {
-        const pureBase64 = extractPureBase64(ref.base64);
+        const parsed = parseDataUrl(ref.base64);
         return {
           referenceId: index + 1,
-          image: { bytesBase64Encoded: pureBase64 },
+          image: { bytesBase64Encoded: parsed.base64, mimeType: parsed.mimeType },
         };
       });
     }
