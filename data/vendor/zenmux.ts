@@ -171,6 +171,18 @@ const vendor: VendorConfig = {
       mode: ["text", "singleImage", "multiReference"],
     },
     {
+      name: "Qwen-Image-2.0-Pro",
+      modelName: "qwen/qwen-image-2.0-pro",
+      type: "image",
+      mode: ["text", "singleImage", "multiReference"],
+    },
+    {
+      name: "GPT-Image-2",
+      modelName: "openai/gpt-image-2",
+      type: "image",
+      mode: ["text", "singleImage", "multiReference"],
+    },
+    {
       name: "Seedance-2.0(音画同生)",
       modelName: "bytedance/doubao-seedance-2.0",
       type: "video",
@@ -312,6 +324,11 @@ const imageRequest = async (config: ImageConfig, model: ImageModel): Promise<str
     }
 
     const result = predictions[0];
+    if (result.gcsUri || result.url) {
+      const imageUrl = result.gcsUri || result.url;
+      logger(`[图片生成] 从URL下载: ${imageUrl}`);
+      return await urlToBase64(imageUrl);
+    }
     if (result.bytesBase64Encoded) {
       return `data:${result.mimeType || "image/png"};base64,${result.bytesBase64Encoded}`;
     }
