@@ -361,171 +361,125 @@ const imageRequest = async (config: ImageConfig, model: ImageModel): Promise<str
 };
 
 const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<string> => {
-  const baseUrl = getBaseUrl();
-  const headers = getHeaders();
+  if (!vendor.inputValues.apiKey) throw new Error("缺少API Key");
 
-  const content: any[] = [];
-  if (config.prompt) {
-    content.push({ type: "text", text: config.prompt });
-  }
+  const imageBaseUrl = (vendor.inputValues.imageBaseUrl || "").replace(/\/+$/, "") || getBaseUrl();
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${vendor.inputValues.apiKey.replace(/^Bearer\s+/i, "")}`,
+  };
 
-  // 安全过滤参考图
+  const instance: any = { prompt: config.prompt || "" };
+
+  // 参考图：首帧/尾帧
   const safeImageRefs = config.referenceList?.filter((r) => r && r.type === "image" && r.base64) ?? [];
-  const safeVideoRefs = config.referenceList?.filter((r) => r && r.type === "video" && r.base64) ?? [];
-  const safeAudioRefs = config.referenceList?.filter((r) => r && r.type === "audio" && r.base64) ?? [];
 
   if (typeof config.mode === "string") {
     switch (config.mode) {
-      case "singleImage": {
+      case "singleImage":
+      case "startFrameOptional":
+      case "endFrameOptional":
         if (safeImageRefs.length > 0) {
-          content.push({
-            type: "image_url",
-            image_url: { url: safeImageRefs[0].base64 },
-            role: "first_frame",
-          });
+          const parsed = parseDataUrl(safeImageRefs[0].base64);
+          instance.referenceImages = [{
+            referenceId: 1,
+            image: { bytesBase64Encoded: parsed.base64, mimeType: parsed.mimeType },
+          }];
         }
         break;
-      }
-      case "startFrameOptional": {
-        if (safeImageRefs.length > 0) {
-          content.push({
-            type: "image_url",
-            image_url: { url: safeImageRefs[0].base64 },
-            role: "first_frame",
-          });
-          if (safeImageRefs.length > 1) {
-            content.push({
-              type: "image_url",
-              image_url: { url: safeImageRefs[1].base64 },
-              role: "last_frame",
-            });
-          }
-        }
-        break;
-      }
-      case "startEndRequired": {
+      case "startEndRequired":
         if (safeImageRefs.length >= 2) {
-          content.push({
-            type: "image_url",
-            image_url: { url: safeImageRefs[0].base64 },
-            role: "first_frame",
-          });
-          content.push({
-            type: "image_url",
-            image_url: { url: safeImageRefs[1].base64 },
-            role: "last_frame",
-          });
+          const first = parseDataUrl(safeImageRefs[0].base64);
+          const last = parseDataUrl(safeImageRefs[1].base64);
+          instance.referenceImages = [
+            { referenceId: 1, image: { bytesBase64Encoded: first.base64, mimeType: first.mimeType } },
+            { referenceId: 2, image: { bytesBase64Encoded: last.base64, mimeType: last.mimeType } },
+          ];
         }
         break;
-      }
-      case "endFrameOptional": {
-        if (safeImageRefs.length > 0) {
-          content.push({
-            type: "image_url",
-            image_url: { url: safeImageRefs[0].base64 },
-            role: "first_frame",
-          });
-          if (safeImageRefs.length > 1) {
-            content.push({
-              type: "image_url",
-              image_url: { url: safeImageRefs[1].base64 },
-              role: "last_frame",
-            });
-          }
-        }
-        break;
-      }
-      case "text":
-      default:
-        break;
-    }
-  } else if (Array.isArray(config.mode)) {
-    for (const refDef of config.mode) {
-      if (typeof refDef === "string") {
-        if (refDef.startsWith("imageReference:")) {
-          const maxCount = parseInt(refDef.split(":")[1], 10);
-          for (const ref of safeImageRefs.slice(0, maxCount)) {
-            content.push({
-              type: "image_url",
-              image_url: { url: ref.base64 },
-              role: "reference_image",
-            });
-          }
-        } else if (refDef.startsWith("videoReference:")) {
-          const maxCount = parseInt(refDef.split(":")[1], 10);
-          for (const ref of safeVideoRefs.slice(0, maxCount)) {
-            content.push({
-              type: "video_url",
-              video_url: { url: ref.base64 },
-              role: "reference_video",
-            });
-          }
-        } else if (refDef.startsWith("audioReference:")) {
-          const maxCount = parseInt(refDef.split(":")[1], 10);
-          for (const ref of safeAudioRefs.slice(0, maxCount)) {
-            content.push({
-              type: "audio_url",
-              audio_url: { url: ref.base64 },
-              role: "reference_audio",
-            });
-          }
-        }
-      }
     }
   }
 
-  const body: any = {
-    model: model.modelName,
-    content,
-    ratio: config.aspectRatio,
-    duration: config.duration,
-    resolution: config.resolution || "720p",
-    watermark: false,
+  const parameters: any = {
+    sampleCount: 1,
+    aspectRatio: config.aspectRatio || "16:9",
   };
 
-  if (model.audio === "optional") {
-    body.generate_audio = config.audio !== false;
-  } else if (model.audio === true) {
-    body.generate_audio = true;
-  } else {
-    body.generate_audio = false;
-  }
+  const body = { instances: [instance], parameters };
 
-  logger(`[视频生成] 提交任务, 模型: ${model.modelName}, 时长: ${config.duration}s, 分辨率: ${config.resolution}`);
+  const url = `${imageBaseUrl}/models/${model.modelName}:predict`;
 
-  const createResponse = await axios.post(`${baseUrl}/contents/generations/tasks`, body, { headers });
-  const taskId = createResponse.data?.id;
-  if (!taskId) throw new Error("视频生成任务创建失败：未返回任务ID");
+  logger(`[视频生成] 请求: POST ${url}`);
+  logger(`[视频生成] 请求体: ${JSON.stringify({ ...body, instances: ["已隐藏 base64 数据"] })}`);
 
-  logger(`[视频生成] 任务已创建, ID: ${taskId}`);
+  try {
+    const createResponse = await axios.post(url, body, { headers });
+    const data = createResponse.data;
+    logger(`[视频生成] 响应: ${JSON.stringify(data)}`);
 
-  const result = await pollTask(
-    async (): Promise<PollResult> => {
-      const queryResponse = await axios.get(`${baseUrl}/contents/generations/tasks/${taskId}`, { headers });
-      const task = queryResponse.data;
+    if (data?.error) {
+      throw new Error(`视频生成失败：${data.error.message || data.error.code}`);
+    }
 
-      logger(`[视频生成] 任务状态: ${task.status}`);
-
-      switch (task.status) {
-        case "succeeded":
-          if (task.content?.video_url) return { completed: true, data: task.content.video_url };
-          return { completed: true, error: "任务成功但未返回视频URL" };
-        case "failed":
-          return { completed: true, error: task.error?.message || "视频生成失败" };
-        case "expired":
-          return { completed: true, error: "视频生成任务超时" };
-        case "cancelled":
-          return { completed: true, error: "视频生成任务已取消" };
-        default:
-          return { completed: false };
+    // 立即完成的响应（predictions 中有视频数据）
+    if (data?.predictions?.[0]) {
+      const pred = data.predictions[0];
+      if (pred.bytesBase64Encoded) {
+        return `data:${pred.mimeType || "video/mp4"};base64,${pred.bytesBase64Encoded}`;
       }
-    },
-    10000,
-    600000 * 3,
-  );
+      if (pred.gcsUri || pred.url) {
+        return await urlToBase64(pred.gcsUri || pred.url);
+      }
+    }
 
-  if (result.error) throw new Error(result.error);
-  return await urlToBase64(result.data!);
+    // 长时操作：轮询 operation
+    const operationName = data?.name;
+    if (!operationName) throw new Error("视频生成失败：未返回操作ID");
+
+    logger(`[视频生成] 操作已创建: ${operationName}`);
+
+    const result = await pollTask(
+      async (): Promise<PollResult> => {
+        const opResponse = await axios.get(`${imageBaseUrl}/${operationName}`, { headers });
+        const op = opResponse.data;
+
+        logger(`[视频生成] 操作状态: done=${op.done}`);
+
+        if (op.error) {
+          return { completed: true, error: op.error.message || "视频生成失败" };
+        }
+        if (op.done && op.response) {
+          const videos = op.response.generatedVideos || [];
+          if (videos.length > 0) {
+            const video = videos[0];
+            if (video.bytesBase64Encoded) {
+              return { completed: true, data: `data:${video.mimeType || "video/mp4"};base64,${video.bytesBase64Encoded}` };
+            }
+            if (video.gcsUri || video.url) {
+              const base64 = await urlToBase64(video.gcsUri || video.url);
+              return { completed: true, data: base64 };
+            }
+          }
+          return { completed: true, error: "任务完成但未返回视频数据" };
+        }
+        return { completed: false };
+      },
+      10000,
+      600000 * 3,
+    );
+
+    if (result.error) throw new Error(result.error);
+    return result.data!;
+  } catch (error: any) {
+    if (error.response?.data) {
+      logger(`[视频生成] 错误响应: ${JSON.stringify(error.response.data)}`);
+      const errData = error.response.data;
+      throw new Error(
+        `视频生成失败：${errData.error?.message || errData.message || JSON.stringify(errData)}`
+      );
+    }
+    throw error;
+  }
 };
 
 const ttsRequest = async (config: TTSConfig, model: TTSModel): Promise<string> => {
