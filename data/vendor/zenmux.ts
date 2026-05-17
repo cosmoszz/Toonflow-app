@@ -287,7 +287,7 @@ const imageRequest = async (config: ImageConfig, model: ImageModel): Promise<str
         const parsed = parseDataUrl(ref.base64);
         return {
           referenceId: index + 1,
-          image: { bytesBase64Encoded: parsed.base64, mimeType: parsed.mimeType },
+          referenceImage: { bytesBase64Encoded: parsed.base64, mimeType: parsed.mimeType },
         };
       });
     }
@@ -383,7 +383,7 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
           const parsed = parseDataUrl(safeImageRefs[0].base64);
           instance.referenceImages = [{
             referenceId: 1,
-            image: { bytesBase64Encoded: parsed.base64, mimeType: parsed.mimeType },
+            referenceImage: { bytesBase64Encoded: parsed.base64, mimeType: parsed.mimeType },
           }];
         }
         break;
@@ -392,8 +392,8 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
           const first = parseDataUrl(safeImageRefs[0].base64);
           const last = parseDataUrl(safeImageRefs[1].base64);
           instance.referenceImages = [
-            { referenceId: 1, image: { bytesBase64Encoded: first.base64, mimeType: first.mimeType } },
-            { referenceId: 2, image: { bytesBase64Encoded: last.base64, mimeType: last.mimeType } },
+            { referenceId: 1, referenceImage: { bytesBase64Encoded: first.base64, mimeType: first.mimeType } },
+            { referenceId: 2, referenceImage: { bytesBase64Encoded: last.base64, mimeType: last.mimeType } },
           ];
         }
         break;
